@@ -6,6 +6,9 @@ from sklearn.model_selection import train_test_split
 
 
 def random_point_on_sphere(dim=2, random_state=None):
+    """
+    Return a random point on the sphere, uniformly selected with respect to volume.
+    """
     random_state = check_random_state(random_state)
     pt = 0
     norm = 0
@@ -16,6 +19,12 @@ def random_point_on_sphere(dim=2, random_state=None):
 
 
 def random_son(dim=2, random_state=None):
+    """
+    Return a random element of SO(dim).
+
+    SO(dim) in this case consists of the orthogonal matrices with determinant 1.
+    Matrices are selected uniformly with respect to Haar measure.
+    """
     random_state = check_random_state(random_state)
     result = -np.eye(dim, dtype=np.float)
 
@@ -30,6 +39,34 @@ def random_son(dim=2, random_state=None):
 
 
 class RandomCoordinateChanger(BaseEstimator, TransformerMixin):
+    """
+    Choose a random change of coordinates and apply to X.
+    
+    Parameters:
+
+    usecols - a sequence of integers indicating the columns of X on which
+    to apply the coordinate change. If None, every column of X will be used.
+
+    transform_dimension - the dimension of the coordinate change. If this
+    is less than len(usecols), for each coordinate change a random selection
+    of transform_dimension features will be selected to apply the coordinate
+    change. If None or greater than len(usecols), the dimension of the
+    coordinate change will be len(usecols). The only reason for this to be
+    less than len(usecols) is performance.
+    
+    transform_repeats - the number of random coordinate changes to select
+    and apply. If transform_dimension is len(usecols), there is no reason
+    for this to be greater than 1. If transform_repeats is 'auto',
+    transform_dimension // len(usecols) will be used.
+    
+    copy - whether to make a copy of X (otherwise it will be transformed in
+    place).
+    
+    random_state - int, RandomState instance or None, optional (default=None)
+    If int, random_state is the seed used by the random number generator. If
+    RandomState instance, random_state is the random number generator. If None,
+    the random number generator is the RandomState instance used by np.random.
+    """
     def __init__(self, transform_dimension=None, transform_repeats='auto', copy=True,
                  usecols=None, random_state=None):
         self.transform_dimension = transform_dimension
@@ -40,12 +77,18 @@ class RandomCoordinateChanger(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None):
         self.random_state = check_random_state(self.random_state)
+
+        if self.usecols is None:
+            indices = np.array(list(range(X.shape[1])))
+        else:
+            indices = np.array(self.usecols)
+
         X = np.array(X)
-        m = X.shape[1]
+        m = len(indices)
         if self.transform_dimension is None:
             self.real_dimension_ = m
         else:
-            self.real_dimension_ = self.transform_dimension
+            self.real_dimension_ = np.min(self.transform_dimension, m)
         if self.transform_repeats == 'auto':
             self.real_repeats_ = m // self.real_dimension_
         else:
@@ -57,29 +100,29 @@ class RandomCoordinateChanger(BaseEstimator, TransformerMixin):
         self.transforms = np.array([create_son()
                                     for i in range(self.real_repeats_)])
 
-        if self.usecols is None:
-            indices = np.array(list(range(m)))
-        else:
-            indices = np.array(self.usecols)
         def choose_indices():
             return self.random_state.choice(indices,
                                             size=self.real_dimension_,
                                             replace=False)
-        self.indices = np.array([choose_indices()
+        self.indices_ = np.array([choose_indices()
                                  for i in range(self.real_repeats_)])
         return self
 
     def transform(self, X):
+        X = np.array(X)
         if self.copy:
             X_ = X.copy()
         else:
             X_ = X
-        for mat, indices in zip(self.transforms, self.indices):
+        for mat, indices in zip(self.transforms, self.indices_):
             X_[:, indices] = np.dot(X_[:, indices], mat)
         return X_
 
 
 class CoordinateChangingDecisionTree(BaseEstimator):
+    """
+    Don't use this directly.
+    """
     def __init__(self,
                  max_depth=None,
                  min_samples_split=2,
@@ -158,17 +201,39 @@ class CoordinateChangingDecisionTree(BaseEstimator):
 class CoordinateChangingDecisionTreeClassifier(
         CoordinateChangingDecisionTree,
         ClassifierMixin):
+    """
+    A decision tree classifier which performs a random change of
+    coordinates before fitting or predicting.
+    
+    The parameters are mostly the same as sklearn's DecisionTreeClassifier, with
+    the exception of transform_dimension, transform_repeats, and usecols, for
+    which see RandomCoordinateChanger.
+
+    It's probably pointless to use this directly: it's useful as part of an
+    ensemble.
+    """
     def initiate_tree_type(self):
         self.tree_type_ = tree.DecisionTreeClassifier
 
 
 class CoordinateChangingDecisionTreeRegressor(
         CoordinateChangingDecisionTree):
+    """
+    Not ready for prime time.
+    """
     def initiate_tree_type(self):
         self.tree_type_ = tree.DecisionTreeRegressor
 
 
 class RandomCoordinateForestClassifier(ensemble.forest.ForestClassifier):
+    """
+    A random forest for which each tree performs a random change of coordinates
+    before fitting or predicting.
+    
+    The parameters are largely the same as sklearn's RandomForestClassifier,
+    with the exception of transform_dimension, transform_repeats, and usecols,
+    for which see RandomCoordinateChanger.
+    """
     def __init__(self,
                  transform_repeats='auto',
                  transform_dimension=None,
