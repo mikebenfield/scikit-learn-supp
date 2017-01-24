@@ -93,7 +93,7 @@ class RandomCoordinateChanger(BaseEstimator, TransformerMixin):
         if self.transform_dimension is None:
             self.real_dimension_ = m
         else:
-            self.real_dimension_ = np.min(self.transform_dimension, m)
+            self.real_dimension_ = min(self.transform_dimension, m)
         if self.transform_repeats == 'auto':
             self.real_repeats_ = m // self.real_dimension_
         else:
